@@ -1,10 +1,11 @@
-import { shallowRef, watchEffect } from 'vue';
+import { shallowRef, watchEffect, triggerRef } from 'vue';
 
 export class KeyManager {
     constructor(options = {}) {
         this.ignoreList = options.ignoreList || ['input', 'textarea'];
         this.schema = shallowRef(null);
         this.activeKeyMap = new Map();
+        this.activeKeys = shallowRef([]); // Reactive list of currently active actions
         this.listeners = new Map(); // path -> Set of callbacks
         this.isListening = false;
         this._onKeyDown = this._onKeyDown.bind(this);
@@ -20,20 +21,88 @@ export class KeyManager {
         });
     }
 
+    /**
+     * Procedural way to get currently active keys/actions
+     */
+    getActiveKeys() {
+        return this.activeKeys.value;
+    }
+
+    /**
+     * Exports the current key bindings and metadata (descriptions)
+     * as a serializable object.
+     */
+    getBindings() {
+        const bindings = {};
+        if (!this.schema.value) return bindings;
+
+        const traverse = (category, parentPath = '') => {
+            const categoryPath = parentPath ? `${parentPath}.${category.name}` : category.name;
+            
+            if (category.actions) {
+                category.actions.forEach(action => {
+                    const actionPath = `${categoryPath}.${action.name}`;
+                    bindings[actionPath] = {
+                        key: action.key,
+                        modifiers: action.modifiers || [],
+                        desc: action.desc || ''
+                    };
+                });
+            }
+
+            if (category.categories) {
+                category.categories.forEach(subCat => traverse(subCat, categoryPath));
+            }
+        };
+
+        this.schema.value.categories?.forEach(cat => traverse(cat));
+        return bindings;
+    }
+
+    /**
+     * Hydrates the schema with saved bindings. 
+     * Matches by action path.
+     */
+    applyBindings(bindings) {
+        if (!this.schema.value || !bindings) return;
+
+        const traverse = (category, parentPath = '') => {
+            const categoryPath = parentPath ? `${parentPath}.${category.name}` : category.name;
+            
+            if (category.actions) {
+                category.actions.forEach(action => {
+                    const actionPath = `${categoryPath}.${action.name}`;
+                    if (bindings[actionPath]) {
+                        action.key = bindings[actionPath].key;
+                        action.modifiers = bindings[actionPath].modifiers;
+                    }
+                });
+            }
+
+            if (category.categories) {
+                category.categories.forEach(subCat => traverse(subCat, categoryPath));
+            }
+        };
+
+        this.schema.value.categories?.forEach(cat => traverse(cat));
+        // Force a re-run of the update effect since we mutated action objects
+        triggerRef(this.schema);
+    }
+
     setIgnoreList(list) {
         this.ignoreList = list;
     }
 
     bindEvents() {
         if (!this.isListening) {
-            window.addEventListener('keydown', this._onKeyDown);
+            window.addEventListener('keydown', this._onKeyDown, { capture: true });
             this.isListening = true;
         }
     }
 
     unbindEvents() {
         if (this.isListening) {
-            window.removeEventListener('keydown', this._onKeyDown);
+            window.removeEventListener('keydown', this._onKeyDown, { capture: true });
             this.isListening = false;
         }
     }
@@ -57,6 +126,7 @@ export class KeyManager {
 
     _updateActiveKeyMap() {
         const newMap = new Map();
+        const activeList = [];
         if (!this.schema.value) return;
 
         const processCategory = (category, parentPath = '', parentEnabled = true) => {
@@ -70,12 +140,15 @@ export class KeyManager {
                     if (isEnabled) {
                         const actionPath = `${categoryPath}.${action.name}`;
                         const keyCombo = this._getKeyComboString(action);
-                        // Last one wins / deeper wins (overwrites earlier entries)
-                        newMap.set(keyCombo, {
+                        const entry = {
                             action,
                             path: actionPath,
-                            categoryPath
-                        });
+                            categoryPath,
+                            combo: keyCombo
+                        };
+                        // Last one wins / deeper wins (overwrites earlier entries)
+                        newMap.set(keyCombo, entry);
+                        activeList.push(entry);
                     }
                 });
             }
@@ -89,6 +162,7 @@ export class KeyManager {
 
         this.schema.value.categories?.forEach(cat => processCategory(cat));
         this.activeKeyMap = newMap;
+        this.activeKeys.value = activeList;
     }
 
     _getKeyComboString(action) {

@@ -10,10 +10,48 @@ A context-aware, reactive key-management system for Vue 3.
 - **Path-based Subscriptions**: Subscribe to specific actions or entire categories.
 - **Automatic Prevention**: Handles `event.preventDefault()` automatically (configurable).
 - **Ignore List**: Automatically ignores events from inputs, textareas, or custom selectors.
+- **Serialization**: Easily export and hydrate key bindings for user-defined shortcuts.
+- **Active Key Tracking**: Reactive list of currently available keys for UI/Status bars.
 
 ## Installation
+...
+## Serialization & Persistence
 
-```bash
+You can export the current key configuration (minus the reactive logic) to save to a database or `localStorage`:
+
+```javascript
+const { getBindings, applyBindings } = useKeyManager()
+
+// Save
+const bindings = getBindings()
+localStorage.setItem('my-keys', JSON.stringify(bindings))
+
+// Load
+const saved = localStorage.getItem('my-keys')
+if (saved) applyBindings(JSON.parse(saved))
+```
+
+## Active Key Tracking (Status Bar)
+
+To show which keys are currently active in the UI:
+
+```javascript
+const { activeKeys } = useKeyManager()
+```
+
+`activeKeys` is a `shallowRef` containing an array of objects:
+`{ action: Object, path: string, categoryPath: string, combo: string }`
+
+```html
+<div class="status-bar">
+  <span v-for="key in activeKeys" :key="key.path">
+    {{ key.combo }}: {{ key.action.desc }}
+  </span>
+</div>
+```
+
+## Schema Structure
+
 npm install vue-key-mgr
 ```
 

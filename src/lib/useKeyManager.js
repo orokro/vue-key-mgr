@@ -6,10 +6,15 @@ const instance = new KeyManager();
 
 export function useKeyManager() {
     const initKeyMgr = (schema) => instance.init(schema);
+    const getBindings = () => instance.getBindings();
+    const applyBindings = (bindings) => instance.applyBindings(bindings);
 
     return {
         keyMgr: instance,
-        initKeyMgr
+        initKeyMgr,
+        getBindings,
+        applyBindings,
+        activeKeys: instance.activeKeys
     };
 }
 
