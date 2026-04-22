@@ -65,54 +65,66 @@ const schema = {
 					]
 				},
 				{
-					name: 'extrusion-mode',
-					// If this is active, its 'e' binding overrides 'tool-selection'
-					enabled: computed(() => currentTool.value === 'pixelExtrusion'),
-					actions: [
-						{
-							name: 'extrude-pixels',
-							key: 'e',
-							desc: 'Smears pixel selection under cursor',
-						}
-					]
+				  name: 'extrusion-mode',
+				  // If this is active, its 'e' binding overrides 'tool-selection'
+				  enabled: computed(() => currentTool.value === 'pixelExtrusion'),
+				  actions: [
+				    {
+				      name: 'extrude-pixels',
+				      key: 'e',
+				      desc: 'Smears pixel selection under cursor',
+				    }
+				  ]
 				}
-			]
-		},
-		{
-			name: 'global',
-			actions: [
+				]
+				},
 				{
-					name: 'save',
-					key: 's',
-					modifiers: ['ctrl'],
-					desc: 'Save project'
+				name: 'global',
+				actions: [
+				    {
+				        name: 'save',
+				        key: 's',
+				        modifiers: ['ctrl'],
+				        desc: 'Save project'
+				    },
+				    {
+				        name: 'delete-item',
+				        keys: [
+				            { key: 'delete' },
+				            { key: 'backspace' },
+				            { key: 'd', modifiers: ['ctrl'] }
+				        ],
+				        desc: 'Delete the selected item'
+				    }
+				]
 				}
-			]
-		}
-	]
-}
+				]
+				}
 
-onMounted(() => {
-	initKeyMgr(schema)
-})
+				onMounted(() => {
+				initKeyMgr(schema)
+				})
 
-// 2. Subscribe to actions using the path-based API
-useKeyAction('editor.help', (event, action) => {
-	addLog(`Action: ${action.name} (Path: editor.help) triggered by ${event.key}`)
-})
+				// 2. Subscribe to actions using the path-based API
+				useKeyAction('editor.help', (event, action) => {
+				addLog(`Action: ${action.name} (Path: editor.help) triggered by ${event.key}`)
+				})
 
-useKeyAction('editor.tool-selection.eraser', (event, action) => {
-	addLog(`Action: ${action.name} triggered. Select Eraser tool.`)
-})
+				useKeyAction('editor.tool-selection.eraser', (event, action) => {
+				addLog(`Action: ${action.name} triggered. Select Eraser tool.`)
+				})
 
-useKeyAction('editor.extrusion-mode.extrude-pixels', (event, action) => {
-	addLog(`Action: ${action.name} triggered. Extruding pixels!`)
-})
+				useKeyAction('editor.extrusion-mode.extrude-pixels', (event, action) => {
+				addLog(`Action: ${action.name} triggered. Extruding pixels!`)
+				})
 
-useKeyAction('global.save', (event, action) => {
-	addLog('Project Saved! (Ctrl+S)')
-})
+				useKeyAction('global.save', (event, action) => {
+				addLog('Project Saved! (Ctrl+S)')
+				})
 
+				useKeyAction('global.delete-item', (event, action) => {
+				addLog(`Delete action triggered by: ${event.key}`)
+				})
 // 3. Category subscription example
 useKeyAction('editor', (event, action, { stopPropagation }) => {
 	addLog(`Category Listener [editor]: Action ${action.name} bubbled up.`)
@@ -155,11 +167,13 @@ useKeyAction('editor', (event, action, { stopPropagation }) => {
 		  <section>
 		    <h3>Try These Keys:</h3>
 		    <ul>
-		      <li><strong>{{ schema.categories[0].actions[0].key }}</strong>: Help</li>
+		      <li><strong>F1</strong>: Help</li>
 		      <li><strong>E</strong>: Eraser / Extrude</li>
 		      <li><strong>Ctrl + S</strong>: Save</li>
+		      <li><strong>Delete, Backspace, or Ctrl + D</strong>: Delete Item</li>
 		    </ul>
 		  </section>
+
 		</div>
 
 		<div class="status-bar">

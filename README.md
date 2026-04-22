@@ -115,8 +115,9 @@ useKeyAction('editor', (event, action, { stopPropagation }) => {
     - `categories`: Nested Categories
 - **Action**:
     - `name`: string (used in path)
-    - `key`: string (e.g., 'f1', 'e', 'enter')
-    - `modifiers`: Array of strings ('ctrl', 'alt', 'shift', 'meta')
+    - `key`: string (e.g., 'f1', 'e', 'enter') - *Single key mode*
+    - `modifiers`: Array of strings ('ctrl', 'alt', 'shift', 'meta') - *Single key mode*
+    - `keys`: Array of `{ key: string, modifiers?: string[] }` - *Multi-key mode (Alternative to key/modifiers)*
     - `allowDefault`: boolean (default: false)
     - `desc`: string (optional description)
 

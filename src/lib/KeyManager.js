@@ -42,11 +42,16 @@ export class KeyManager {
             if (category.actions) {
                 category.actions.forEach(action => {
                     const actionPath = `${categoryPath}.${action.name}`;
-                    bindings[actionPath] = {
-                        key: action.key,
-                        modifiers: action.modifiers || [],
-                        desc: action.desc || ''
-                    };
+                    const entry = { desc: action.desc || '' };
+                    
+                    if (action.keys) {
+                        entry.keys = JSON.parse(JSON.stringify(action.keys));
+                    } else {
+                        entry.key = action.key;
+                        entry.modifiers = action.modifiers || [];
+                    }
+                    
+                    bindings[actionPath] = entry;
                 });
             }
 
@@ -72,9 +77,18 @@ export class KeyManager {
             if (category.actions) {
                 category.actions.forEach(action => {
                     const actionPath = `${categoryPath}.${action.name}`;
-                    if (bindings[actionPath]) {
-                        action.key = bindings[actionPath].key;
-                        action.modifiers = bindings[actionPath].modifiers;
+                    const saved = bindings[actionPath];
+                    if (saved) {
+                        if (saved.keys) {
+                            action.keys = JSON.parse(JSON.stringify(saved.keys));
+                            // Clean up old single key props if they exist to avoid confusion
+                            delete action.key;
+                            delete action.modifiers;
+                        } else if (saved.key) {
+                            action.key = saved.key;
+                            action.modifiers = saved.modifiers;
+                            delete action.keys;
+                        }
                     }
                 });
             }
@@ -139,16 +153,24 @@ export class KeyManager {
                 category.actions.forEach(action => {
                     if (isEnabled) {
                         const actionPath = `${categoryPath}.${action.name}`;
-                        const keyCombo = this._getKeyComboString(action);
-                        const entry = {
-                            action,
-                            path: actionPath,
-                            categoryPath,
-                            combo: keyCombo
-                        };
-                        // Last one wins / deeper wins (overwrites earlier entries)
-                        newMap.set(keyCombo, entry);
-                        activeList.push(entry);
+                        
+                        // Handle multiple bindings or single binding
+                        const bindings = action.keys || [{ key: action.key, modifiers: action.modifiers }];
+                        
+                        bindings.forEach(binding => {
+                            if (!binding.key) return;
+                            
+                            const keyCombo = this._getKeyComboString(binding);
+                            const entry = {
+                                action,
+                                path: actionPath,
+                                categoryPath,
+                                combo: keyCombo
+                            };
+                            // Last one wins / deeper wins (overwrites earlier entries)
+                            newMap.set(keyCombo, entry);
+                            activeList.push(entry);
+                        });
                     }
                 });
             }
@@ -165,12 +187,12 @@ export class KeyManager {
         this.activeKeys.value = activeList;
     }
 
-    _getKeyComboString(action) {
-        const mods = (action.modifiers || [])
+    _getKeyComboString(binding) {
+        const mods = (binding.modifiers || [])
             .map(m => m.toLowerCase())
             .sort()
             .join('+');
-        const key = action.key.toLowerCase();
+        const key = binding.key.toLowerCase();
         return mods ? `${mods}+${key}` : key;
     }
 
