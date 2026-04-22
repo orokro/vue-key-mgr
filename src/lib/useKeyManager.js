@@ -8,12 +8,14 @@ export function useKeyManager() {
     const initKeyMgr = (schema) => instance.init(schema);
     const getBindings = () => instance.getBindings();
     const applyBindings = (bindings) => instance.applyBindings(bindings);
+    const registerProvider = (type, factory) => instance.registerProvider(type, factory);
 
     return {
         keyMgr: instance,
         initKeyMgr,
         getBindings,
         applyBindings,
+        registerProvider,
         activeKeys: instance.activeKeys
     };
 }

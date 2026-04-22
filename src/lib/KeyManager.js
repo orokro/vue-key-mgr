@@ -4,10 +4,11 @@ export class KeyManager {
     constructor(options = {}) {
         this.ignoreList = options.ignoreList || ['input', 'textarea'];
         this.schema = shallowRef(null);
-        this.activeKeyMap = new Map();
-        this.activeKeys = shallowRef([]); // Reactive list of currently active actions
+        this.activeInputMap = new Map(); // Map<type, Map<slug, actionEntry>>
+        this.activeKeys = shallowRef([]); // Reactive list of currently active actions/combos
         this.listeners = new Map(); // path -> Set of callbacks
         this.isListening = false;
+        this.providers = new Map();
         this._onKeyDown = this._onKeyDown.bind(this);
     }
 
@@ -19,6 +20,17 @@ export class KeyManager {
         watchEffect(() => {
             this._updateActiveKeyMap();
         });
+    }
+
+    /**
+     * Registers a custom input provider (e.g. gamepad, midi).
+     * The factory receives an emit(slug, event) function.
+     */
+    registerProvider(type, factory) {
+        const emit = (slug, event = {}) => {
+            this._triggerInput(type, slug, event);
+        };
+        this.providers.set(type, factory(emit));
     }
 
     /**
@@ -44,7 +56,9 @@ export class KeyManager {
                     const actionPath = `${categoryPath}.${action.name}`;
                     const entry = { desc: action.desc || '' };
                     
-                    if (action.keys) {
+                    if (action.inputs) {
+                        entry.inputs = JSON.parse(JSON.stringify(action.inputs));
+                    } else if (action.keys) {
                         entry.keys = JSON.parse(JSON.stringify(action.keys));
                     } else {
                         entry.key = action.key;
@@ -79,14 +93,20 @@ export class KeyManager {
                     const actionPath = `${categoryPath}.${action.name}`;
                     const saved = bindings[actionPath];
                     if (saved) {
-                        if (saved.keys) {
+                        if (saved.inputs) {
+                            action.inputs = JSON.parse(JSON.stringify(saved.inputs));
+                            delete action.keys;
+                            delete action.key;
+                            delete action.modifiers;
+                        } else if (saved.keys) {
                             action.keys = JSON.parse(JSON.stringify(saved.keys));
-                            // Clean up old single key props if they exist to avoid confusion
+                            delete action.inputs;
                             delete action.key;
                             delete action.modifiers;
                         } else if (saved.key) {
                             action.key = saved.key;
                             action.modifiers = saved.modifiers;
+                            delete action.inputs;
                             delete action.keys;
                         }
                     }
@@ -99,7 +119,6 @@ export class KeyManager {
         };
 
         this.schema.value.categories?.forEach(cat => traverse(cat));
-        // Force a re-run of the update effect since we mutated action objects
         triggerRef(this.schema);
     }
 
@@ -139,7 +158,7 @@ export class KeyManager {
     }
 
     _updateActiveKeyMap() {
-        const newMap = new Map();
+        const newMap = new Map(); // Map<type, Map<slug, entry>>
         const activeList = [];
         if (!this.schema.value) return;
 
@@ -154,21 +173,39 @@ export class KeyManager {
                     if (isEnabled) {
                         const actionPath = `${categoryPath}.${action.name}`;
                         
-                        // Handle multiple bindings or single binding
-                        const bindings = action.keys || [{ key: action.key, modifiers: action.modifiers }];
-                        
-                        bindings.forEach(binding => {
-                            if (!binding.key) return;
+                        // Normalize inputs
+                        let inputs = [];
+                        if (action.inputs) {
+                            inputs = action.inputs;
+                        } else if (action.keys) {
+                            inputs = action.keys.map(k => ({ ...k, type: 'keyboard' }));
+                        } else if (action.key) {
+                            inputs = [{ key: action.key, modifiers: action.modifiers, type: 'keyboard' }];
+                        }
+
+                        inputs.forEach(input => {
+                            const type = input.type || 'keyboard';
+                            let slug = '';
+
+                            if (type === 'keyboard') {
+                                slug = this._getKeyComboString(input);
+                            } else {
+                                slug = input.slug;
+                            }
+
+                            if (!slug) return;
+
+                            if (!newMap.has(type)) newMap.set(type, new Map());
                             
-                            const keyCombo = this._getKeyComboString(binding);
                             const entry = {
                                 action,
                                 path: actionPath,
                                 categoryPath,
-                                combo: keyCombo
+                                type,
+                                slug
                             };
-                            // Last one wins / deeper wins (overwrites earlier entries)
-                            newMap.set(keyCombo, entry);
+                            
+                            newMap.get(type).set(slug, entry);
                             activeList.push(entry);
                         });
                     }
@@ -183,7 +220,7 @@ export class KeyManager {
         };
 
         this.schema.value.categories?.forEach(cat => processCategory(cat));
-        this.activeKeyMap = newMap;
+        this.activeInputMap = newMap;
         this.activeKeys.value = activeList;
     }
 
@@ -192,7 +229,8 @@ export class KeyManager {
             .map(m => m.toLowerCase())
             .sort()
             .join('+');
-        const key = binding.key.toLowerCase();
+        const key = binding.key?.toLowerCase();
+        if (!key) return '';
         return mods ? `${mods}+${key}` : key;
     }
 
@@ -204,29 +242,20 @@ export class KeyManager {
         if (event.metaKey) mods.push('meta');
         
         const key = event.key.toLowerCase();
-        // Don't include modifiers alone as the key
         if (['control', 'alt', 'shift', 'meta'].includes(key)) return null;
         
         const modsStr = mods.sort().join('+');
         return modsStr ? `${modsStr}+${key}` : key;
     }
 
-    _onKeyDown(event) {
-        // Check ignore list
-        const path = event.composedPath();
-        const isIgnored = path.some(el => {
-            if (!el.matches) return false;
-            return this.ignoreList.some(selector => el.matches(selector));
-        });
+    _triggerInput(type, slug, event) {
+        const typeMap = this.activeInputMap.get(type);
+        if (!typeMap) return;
 
-        if (isIgnored) return;
-
-        const combo = this._getEventKeyComboString(event);
-        if (!combo) return;
-
-        const activeAction = this.activeKeyMap.get(combo);
+        const activeAction = typeMap.get(slug);
         if (activeAction) {
-            if (activeAction.action.allowDefault !== true) {
+            // Only keyboard events get automatic preventDefault
+            if (type === 'keyboard' && activeAction.action.allowDefault !== true && event.preventDefault) {
                 event.preventDefault();
             }
 
@@ -242,16 +271,11 @@ export class KeyManager {
                 }
             };
 
-            // 1. Trigger action specific listeners
             trigger(activeAction.path, activeAction.action);
 
-            // 2. Trigger category listeners (bubbles up)
             if (!propagationStopped) {
                 const parts = activeAction.path.split('.');
-                // Remove the action name to get categories
                 parts.pop(); 
-                
-                // Bubble up: a.b.c -> trigger a.b.c, then a.b, then a
                 while (parts.length > 0 && !propagationStopped) {
                     const currentPath = parts.join('.');
                     trigger(currentPath, activeAction.action);
@@ -259,5 +283,20 @@ export class KeyManager {
                 }
             }
         }
+    }
+
+    _onKeyDown(event) {
+        const path = event.composedPath();
+        const isIgnored = path.some(el => {
+            if (!el.matches) return false;
+            return this.ignoreList.some(selector => el.matches(selector));
+        });
+
+        if (isIgnored) return;
+
+        const combo = this._getEventKeyComboString(event);
+        if (!combo) return;
+
+        this._triggerInput('keyboard', combo, event);
     }
 }

@@ -13,7 +13,16 @@ const addLog = (msg) => {
 }
 
 // 1. Initialize the Key Manager with the hierarchical schema
-const { initKeyMgr, activeKeys, getBindings, applyBindings } = useKeyManager()
+const { initKeyMgr, activeKeys, getBindings, applyBindings, registerProvider } = useKeyManager()
+
+// Register a mock gamepad provider
+registerProvider('gamepad', (emit) => {
+    // In a real app, you'd listen to the Gamepad API here
+    // For this demo, we'll expose the emit function globally for testing
+    window.simulateGamepad = (buttonSlug) => {
+        emit(buttonSlug, { simulated: true })
+    }
+})
 
 const saveBindings = () => {
   const bindings = getBindings()
@@ -95,36 +104,50 @@ const schema = {
 				            { key: 'd', modifiers: ['ctrl'] }
 				        ],
 				        desc: 'Delete the selected item'
+				    },
+				    {
+				        name: 'turbo-boost',
+				        inputs: [
+				            { type: 'keyboard', key: 't', modifiers: ['shift'] },
+				            { type: 'gamepad', slug: 'button_1' }
+				        ],
+				        desc: 'Engage turbo boost!'
 				    }
-				]
-				}
-				]
-				}
+				    ]
+				    }
+				    ]
+				    }
 
-				onMounted(() => {
-				initKeyMgr(schema)
-				})
+				    onMounted(() => {
+				    initKeyMgr(schema)
+				    })
 
-				// 2. Subscribe to actions using the path-based API
-				useKeyAction('editor.help', (event, action) => {
-				addLog(`Action: ${action.name} (Path: editor.help) triggered by ${event.key}`)
-				})
+				    // 2. Subscribe to actions using the path-based API
+				    useKeyAction('editor.help', (event, action) => {
+				    addLog(`Action: ${action.name} (Path: editor.help) triggered by ${event.key}`)
+				    })
 
-				useKeyAction('editor.tool-selection.eraser', (event, action) => {
-				addLog(`Action: ${action.name} triggered. Select Eraser tool.`)
-				})
+				    useKeyAction('editor.tool-selection.eraser', (event, action) => {
+				    addLog(`Action: ${action.name} triggered. Select Eraser tool.`)
+				    })
 
-				useKeyAction('editor.extrusion-mode.extrude-pixels', (event, action) => {
-				addLog(`Action: ${action.name} triggered. Extruding pixels!`)
-				})
+				    useKeyAction('editor.extrusion-mode.extrude-pixels', (event, action) => {
+				    addLog(`Action: ${action.name} triggered. Extruding pixels!`)
+				    })
 
-				useKeyAction('global.save', (event, action) => {
-				addLog('Project Saved! (Ctrl+S)')
-				})
+				    useKeyAction('global.save', (event, action) => {
+				    addLog('Project Saved! (Ctrl+S)')
+				    })
 
-				useKeyAction('global.delete-item', (event, action) => {
-				addLog(`Delete action triggered by: ${event.key}`)
-				})
+				    useKeyAction('global.delete-item', (event, action) => {
+				    addLog(`Delete action triggered by: ${event.key}`)
+				    })
+
+				    useKeyAction('global.turbo-boost', (event, action) => {
+				    const source = event.simulated ? 'Gamepad' : `Keyboard (${event.key})`
+				    addLog(`TURBO BOOST triggered via ${source}!`)
+				    })
+
 // 3. Category subscription example
 useKeyAction('editor', (event, action, { stopPropagation }) => {
 	addLog(`Category Listener [editor]: Action ${action.name} bubbled up.`)
@@ -161,28 +184,35 @@ useKeyAction('editor', (event, action, { stopPropagation }) => {
 		    <button @click="saveBindings">Save Bindings</button>
 		    <button @click="loadBindings">Load Bindings</button>
 		    <button @click="resetBindings">Reset Bindings</button>
+		    <button @click="console.log('Current Bindings:', getBindings())">Log Bindings</button>
 		    <p><small>Changes are local to this session until "Save" is clicked.</small></p>
-		  </section>
+		    </section>
 
-		  <section>
+		    <section>
+		    <h3>Custom Inputs</h3>
+		    <button @click="window.simulateGamepad('button_1')">Simulate Gamepad Button 1</button>
+		    </section>
+
+		    <section>
 		    <h3>Try These Keys:</h3>
 		    <ul>
 		      <li><strong>F1</strong>: Help</li>
 		      <li><strong>E</strong>: Eraser / Extrude</li>
 		      <li><strong>Ctrl + S</strong>: Save</li>
 		      <li><strong>Delete, Backspace, or Ctrl + D</strong>: Delete Item</li>
+		      <li><strong>Shift + T / Gamepad (Simulated)</strong>: Turbo Boost</li>
 		    </ul>
-		  </section>
+		    </section>
+		    </div>
 
-		</div>
-
-		<div class="status-bar">
-		    <strong>Active Keys:</strong>
+		    <div class="status-bar">
+		    <strong>Active Inputs:</strong>
 		    <span v-if="activeKeys.length === 0">None</span>
-		    <span v-for="ak in activeKeys" :key="ak.path" class="key-tag">
-		        <code>{{ ak.combo }}</code>: {{ ak.path }}
+		    <span v-for="ak in activeKeys" :key="ak.path + ak.slug" class="key-tag">
+		        <code>[{{ ak.type }}] {{ ak.slug || ak.combo }}</code>: {{ ak.path }}
 		    </span>
-		</div>
+		    </div>
+
 
 		<div class="test-area">
 

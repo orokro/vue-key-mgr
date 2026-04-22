@@ -12,6 +12,8 @@ A context-aware, reactive key-management system for Vue 3.
 - **Ignore List**: Automatically ignores events from inputs, textareas, or custom selectors.
 - **Serialization**: Easily export and hydrate key bindings for user-defined shortcuts.
 - **Active Key Tracking**: Reactive list of currently available keys for UI/Status bars.
+- **Custom Input Providers**: Support for gamepads, MIDI, or any HID device via a simple provider API.
+- **Universal Input Mode**: Single action can be bound to multiple keyboard, gamepad, and custom inputs.
 
 ## Installation
 ...
@@ -29,6 +31,33 @@ localStorage.setItem('my-keys', JSON.stringify(bindings))
 // Load
 const saved = localStorage.getItem('my-keys')
 if (saved) applyBindings(JSON.parse(saved))
+```
+
+## Custom Input Providers
+
+You can register custom systems to trigger actions:
+
+```javascript
+const { registerProvider } = useKeyManager()
+
+registerProvider('gamepad', (emit) => {
+  // Your driver logic here
+  window.addEventListener('gamepadbuttondown', (e) => {
+    emit(`button_${e.button}`)
+  })
+})
+```
+
+Then in your schema:
+
+```javascript
+{
+  name: 'jump',
+  inputs: [
+    { key: 'space' }, // default type: keyboard
+    { type: 'gamepad', slug: 'button_0' }
+  ]
+}
 ```
 
 ## Active Key Tracking (Status Bar)
@@ -115,9 +144,10 @@ useKeyAction('editor', (event, action, { stopPropagation }) => {
     - `categories`: Nested Categories
 - **Action**:
     - `name`: string (used in path)
-    - `key`: string (e.g., 'f1', 'e', 'enter') - *Single key mode*
-    - `modifiers`: Array of strings ('ctrl', 'alt', 'shift', 'meta') - *Single key mode*
-    - `keys`: Array of `{ key: string, modifiers?: string[] }` - *Multi-key mode (Alternative to key/modifiers)*
+    - `key`: string (e.g., 'f1', 'e', 'enter') - *Legacy single key mode*
+    - `modifiers`: Array of strings ('ctrl', 'alt', 'shift', 'meta') - *Legacy single key mode*
+    - `keys`: Array of `{ key: string, modifiers?: string[] }` - *Multi-key keyboard mode*
+    - `inputs`: Array of `{ type?: string, key?: string, modifiers?: string[], slug?: string }` - *Universal input mode*
     - `allowDefault`: boolean (default: false)
     - `desc`: string (optional description)
 
