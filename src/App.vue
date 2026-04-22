@@ -15,13 +15,193 @@ const addLog = (msg) => {
 // 1. Initialize the Key Manager with the hierarchical schema
 const { initKeyMgr, activeKeys, getBindings, applyBindings, registerProvider } = useKeyManager()
 
-// Register a mock gamepad provider
+const gamepadConnected = ref(false)
+const hidDevices = ref([])
+
+// Define helpers locally so template can see them
+const simulateGamepad = ref(null)
+const refreshGamepadList = ref(null)
+const forceGamepadWakeup = ref(null)
+const connectHID = ref(null)
+
+// Register real gamepad provider
 registerProvider('gamepad', (emit) => {
-    // In a real app, you'd listen to the Gamepad API here
-    // For this demo, we'll expose the emit function globally for testing
-    window.simulateGamepad = (buttonSlug) => {
-        emit(buttonSlug, { simulated: true })
+    console.log('[Gamepad] Provider factory initialized');
+    
+    // state maps: index -> { buttons: Map<slug, boolean>, axes: Map<slug, boolean> }
+    const gamepadStates = new Map();
+
+    simulateGamepad.value = (buttonSlug) => {
+        emit(buttonSlug, { simulated: true });
+    };
+
+    // --- WebHID Logic ---
+    connectHID.value = async () => {
+        if (!navigator.hid) {
+            alert('WebHID is not supported in this browser or context (requires HTTPS/Localhost).');
+            return;
+        }
+
+        try {
+            const devices = await navigator.hid.requestDevice({ filters: [] });
+            if (devices.length > 0) {
+                devices.forEach(setupHIDDevice);
+            }
+        } catch (err) {
+            console.error('[WebHID] Connection failed:', err);
+        }
+    };
+
+    const setupHIDDevice = (device) => {
+        console.log(`[WebHID] Connected to: ${device.productName}`);
+        addLog(`HID Connected: ${device.productName}`);
+        
+        let lastState = null;
+
+        if (!device.opened) {
+            device.open().then(() => {
+                device.addEventListener('inputreport', (event) => {
+                    const { data, reportId } = event;
+                    if (data.byteLength > 0) {
+                        const view = new Uint8Array(data.buffer);
+                        const current = Array.from(view.slice(0, 16)); // Read more bytes just in case
+                        
+                        if (!gamepadConnected.value) gamepadConnected.value = true;
+
+                        // Identify which bytes changed
+                        if (lastState) {
+                            current.forEach((val, i) => {
+                                if (val !== lastState[i]) {
+                                    // Map Byte 10 to button_1 (Turbo Boost)
+                                    if (i === 10) {
+                                        if (val === 1) emit('button_1', { originalEvent: event, hid: true });
+                                    }
+                                }
+                            });
+                        }
+                        lastState = current;
+
+                        emit('hid_input', { 
+                            device: device.productName, 
+                            reportId, 
+                            raw: current
+                        });
+                    }
+                });
+            });
+        }
+    };
+
+    // Auto-reconnect existing HID permissions
+    if (navigator.hid) {
+        navigator.hid.getDevices().then(devices => {
+            devices.forEach(setupHIDDevice);
+        });
     }
+    // --- End WebHID Logic ---
+
+    // Manual debug helpers
+    refreshGamepadList.value = () => {
+        const gps = navigator.getGamepads ? navigator.getGamepads() : [];
+        const active = Array.from(gps).filter(g => g !== null);
+        console.log('[Gamepad] Manual Refresh. Active count:', active.length);
+        addLog(`Manual refresh: Found ${active.length} active gamepads.`);
+        active.forEach(gp => {
+            console.log(` - [${gp.index}] ${gp.id} (Mapping: ${gp.mapping || 'none'})`);
+        });
+    }
+
+    forceGamepadWakeup.value = () => {
+        console.log('[Gamepad] Force Wakeup Triggered...');
+        const gps = navigator.getGamepads ? navigator.getGamepads() : [];
+        const active = Array.from(gps).filter(g => g !== null);
+        
+        if (active.length > 0) {
+            gamepadConnected.value = true;
+            addLog(`Force wakeup: Found ${active.length} gamepads.`);
+            console.log('[Gamepad] Active:', active.map(g => g.id));
+        } else {
+            addLog('Force wakeup: Still 0 gamepads. Interaction required.');
+            console.log('[Gamepad] No active gamepads. Note: Most browsers require a button press first.');
+        }
+    }
+
+    const poll = () => {
+        const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+        let anyConnected = false;
+
+        for (let i = 0; i < gamepads.length; i++) {
+            const gp = gamepads[i];
+            if (!gp) {
+                if (gamepadStates.has(i)) {
+                    gamepadStates.delete(i);
+                    console.log(`[Gamepad] Slot ${i} disconnected.`);
+                }
+                continue;
+            }
+
+            anyConnected = true;
+            if (!gamepadStates.has(i)) {
+                gamepadStates.set(i, { buttons: new Map(), axes: new Map() });
+                console.log(`[Gamepad] Detected [${i}]: ${gp.id}`);
+                addLog(`Gamepad Detected: ${gp.id}`);
+            }
+
+            const state = gamepadStates.get(i);
+
+            // 1. Poll Buttons
+            gp.buttons.forEach((btn, index) => {
+                const slug = `button_${index}`;
+                const wasPressed = state.buttons.get(slug) || false;
+                const isPressed = btn.pressed;
+
+                if (isPressed && !wasPressed) {
+                    emit(slug, { originalEvent: btn, gamepad: gp });
+                }
+                state.buttons.set(slug, isPressed);
+            });
+
+            // 2. Poll Axes (mapped to virtual buttons)
+            gp.axes.forEach((val, index) => {
+                const threshold = 0.5;
+                const directions = [
+                    { slug: `axis_${index}_pos`, active: val > threshold },
+                    { slug: `axis_${index}_neg`, active: val < -threshold }
+                ];
+
+                directions.forEach(dir => {
+                    const wasActive = state.axes.get(dir.slug) || false;
+                    if (dir.active && !wasActive) {
+                        emit(dir.slug, { value: val, gamepad: gp });
+                    }
+                    state.axes.set(dir.slug, dir.active);
+                });
+            });
+        }
+        
+        if (gamepadConnected.value !== anyConnected) {
+            gamepadConnected.value = anyConnected;
+        }
+
+        requestAnimationFrame(poll);
+    }
+
+    window.addEventListener('gamepadconnected', (e) => {
+        console.log('[Gamepad] EVENT: Connected', e.gamepad.id);
+        gamepadConnected.value = true;
+        addLog(`Gamepad connected: ${e.gamepad.id}`);
+    });
+    
+    window.addEventListener('gamepaddisconnected', (e) => {
+        console.log('[Gamepad] EVENT: Disconnected', e.gamepad.id);
+        const gps = navigator.getGamepads();
+        const stillConnected = Array.from(gps || []).some(g => g !== null);
+        gamepadConnected.value = stillConnected;
+        addLog(`Gamepad disconnected: ${e.gamepad.id}`);
+    });
+
+    console.log('[Gamepad] Polling loop started.');
+    requestAnimationFrame(poll);
 })
 
 const saveBindings = () => {
@@ -144,7 +324,12 @@ const schema = {
 				    })
 
 				    useKeyAction('global.turbo-boost', (event, action) => {
-				    const source = event.simulated ? 'Gamepad' : `Keyboard (${event.key})`
+				    let source = 'Keyboard'
+				    if (event.simulated) source = 'Gamepad (Simulated)'
+				    else if (event.hid) source = 'HID Controller'
+				    else if (event.gamepad) source = 'Gamepad'
+				    else if (event.key) source = `Keyboard (${event.key})`
+				    
 				    addLog(`TURBO BOOST triggered via ${source}!`)
 				    })
 
@@ -189,9 +374,23 @@ useKeyAction('editor', (event, action, { stopPropagation }) => {
 		    </section>
 
 		    <section>
-		    <h3>Custom Inputs</h3>
-		    <button @click="window.simulateGamepad('button_1')">Simulate Gamepad Button 1</button>
-		    </section>
+		      <h3>Custom Inputs</h3>
+		      <p>
+		        Gamepad Status: 
+		        <span :style="{ color: gamepadConnected ? '#0f0' : '#f00' }">
+		          {{ gamepadConnected ? 'Connected' : 'Disconnected' }}
+		        </span>
+		        <br>
+		        <small v-if="!gamepadConnected">Press any button on your controller or use HID Connect.</small>
+		      </p>
+
+		      <div style="display: flex; flex-direction: column; gap: 5px;">
+		        <button @click="connectHID">Connect via WebHID (Experimental Fix)</button>
+		        <button @click="simulateGamepad?.('button_1')">Simulate Gamepad Button 1</button>
+		        <button @click="refreshGamepadList?.()">Refresh Gamepad List</button>
+		        <button @click="forceGamepadWakeup?.()">FORCE Gamepad Wakeup</button>
+		      </div>
+		      </section>
 
 		    <section>
 		    <h3>Try These Keys:</h3>

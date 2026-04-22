@@ -41,10 +41,23 @@ You can register custom systems to trigger actions:
 const { registerProvider } = useKeyManager()
 
 registerProvider('gamepad', (emit) => {
-  // Your driver logic here
-  window.addEventListener('gamepadbuttondown', (e) => {
-    emit(`button_${e.button}`)
-  })
+  const buttonStates = new Map()
+
+  const poll = () => {
+    const gps = navigator.getGamepads()
+    for (const gp of gps) {
+      if (!gp) continue
+      gp.buttons.forEach((btn, i) => {
+        const wasPressed = buttonStates.get(`${gp.index}_${i}`)
+        if (btn.pressed && !wasPressed) {
+          emit(`button_${i}`, { gamepad: gp })
+        }
+        buttonStates.set(`${gp.index}_${i}`, btn.pressed)
+      })
+    }
+    requestAnimationFrame(poll)
+  }
+  requestAnimationFrame(poll)
 })
 ```
 
